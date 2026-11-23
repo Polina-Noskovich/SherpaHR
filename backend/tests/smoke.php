@@ -113,6 +113,20 @@ try {
     check(count($response['data']) === 6, 'initialization does not duplicate or reset data');
     check(request('GET', '/api/tasks/9999')[0] === 404, 'missing task returns 404');
     check(request('GET', '/api/unknown')[0] === 404, 'unknown route returns 404');
+    [$status, $attention] = request('GET', '/api/attention');
+    $attentionIds = array_column($attention['data'], 'id');
+    check(in_array(5, $attentionIds, true) && in_array(1, $attentionIds, true) && in_array(2, $attentionIds, true) && in_array(7, $attentionIds, true), 'Anna attention list contains tasks 5, 1, 2, 7');
+    check(!in_array(10, $attentionIds, true), 'attention excludes archived project tasks');
+    check(!in_array(11, $attentionIds, true), 'attention excludes foreign tasks');
+    foreach ($attention['data'] as $item) {
+        check(is_array($item['reasons']) && $item['reasons'] !== [] && is_int($item['score']), 'attention items carry reasons and score');
+    }
+    [$status, $attentionVera] = request('GET', '/api/attention', null, 3);
+    $veraIds = array_column($attentionVera['data'], 'id');
+    check(in_array(11, $veraIds, true), 'Vera attention contains her task 11');
+    $veraOutside = array_values(array_filter($attentionVera['data'], fn(array $t): bool => $t['project_id'] === 2));
+    check($veraOutside === [], 'attention excludes tasks outside Vera membership: ' . json_encode($veraOutside, JSON_UNESCAPED_UNICODE));
+    check(request('GET', '/api/attention', null, 999)[0] === 401, 'attention requires known persona');
     echo "PASS: $count API checks\n";
 } catch (Throwable $error) {
     fwrite(STDERR, $error->getMessage() . PHP_EOL . file_get_contents($directory . '/server.log'));

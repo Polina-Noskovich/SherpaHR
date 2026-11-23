@@ -9,9 +9,12 @@
 </header>
 <div class="shell">
   <nav class="sidebar" aria-label="Проекты">
+    <button class="project-link" [class.selected]="currentView() === 'attention'" [attr.aria-current]="currentView() === 'attention' ? 'page' : null" (click)="openAttentionView()">
+      <span class="project-icon">⌖</span><span>Требует внимания<small>{{attentionTasks().length}} задач</small></span>
+    </button>
     <div class="nav-heading">Ваши проекты <span>{{projects().length}}</span></div>
     @for (p of projects(); track p.id) {
-      <button class="project-link" [class.selected]="project()?.id === p.id" [attr.aria-current]="project()?.id === p.id ? 'page' : null" (click)="selectProject(p)">
+      <button class="project-link" [class.selected]="currentView() === 'project' && project()?.id === p.id" [attr.aria-current]="currentView() === 'project' && project()?.id === p.id ? 'page' : null" (click)="selectProject(p)">
         <span class="project-icon">{{p.archived ? '▤' : '▧'}}</span><span>{{p.name}}<small>{{p.archived ? 'Архив' : p.task_count + ' задач'}}</small></span>
       </button>
     }
@@ -20,7 +23,72 @@
   <main>
     @if (error()) { <div role="alert" class="alert error">{{error()}}</div> }
     @if (notice()) { <div role="status" class="alert success">{{notice()}}</div> }
-    @if (project(); as p) {
+    @if (currentView() === 'attention') {
+      <section class="attention" aria-label="Требует внимания">
+        <div class="page-heading">
+          <div>
+            <h1>Требует внимания{{context()?.user?.name ? ' · ' + context()?.user?.name : ''}}</h1>
+            <p>Задачи, требующие реакции: с препятствиями, горящими сроками и неотвеченными вопросами.</p>
+          </div>
+        </div>
+        @if (loading()) { <div class="empty" role="status">Загружаем сигналы внимания…</div> }
+        @else if (attentionTasks().length === 0) { <div class="empty" role="status">Все задачи под контролем: сигналов внимания нет.</div> }
+        @else {
+          <div class="attention-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Проект</th>
+                  <th>Задача</th>
+                  <th>Статус</th>
+                  <th>Причины внимания</th>
+                  <th>Последнее в обсуждении</th>
+                  <th>Исполнитель</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (task of attentionTasks(); track task.id) {
+                  <tr>
+                    <td>{{task.project_name}}</td>
+                    <td>
+                      <button class="task-title" (click)="openAttentionTask(task)">
+                        <span class="task-number">#{{task.id}}</span>{{task.title}}
+                      </button>
+                    </td>
+                    <td>
+                      <span class="badge" [class]="'badge ' + task.status">{{statusLabel(task.status)}}</span>
+                    </td>
+                    <td>
+                      <div class="reason-stack">
+                        @for (r of task.reasons; track r.code) {
+                          <span class="badge" [class.badge-high]="r.severity === 'high'" [class.badge-medium]="r.severity === 'medium'">{{r.label}}</span>
+                        }
+                      </div>
+                    </td>
+                    <td>
+                      <div class="attention-comment-block">
+                        @if (task.last_comment) {
+                          <strong>{{task.last_comment.author}}</strong>
+                          <p>{{task.last_comment.body}}</p>
+                        } @else {
+                          <span class="muted">Нет комментариев</span>
+                        }
+                      </div>
+                    </td>
+                    <td>
+                      <div>{{task.assignee_name ?? 'Не назначен'}}</div>
+                      <div class="muted" style="font-size: 11px; margin-top: 4px;">
+                        {{task.due_at ? (task.due_at | date:'dd.MM.yyyy HH:mm':'UTC') : 'Без срока'}}
+                      </div>
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        }
+      </section>
+    } @else if (project(); as p) {
       <div class="breadcrumb">Проекты <span>/</span> {{p.archived ? 'Архив' : 'Рабочее пространство'}}</div>
       <div class="page-heading"><div><h1>{{p.name}}</h1><p>{{p.description}}</p></div>
         @if (!p.archived) { <button class="primary" (click)="createTask()" [disabled]="loading() || saving()">＋ Новая задача</button> }

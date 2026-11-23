@@ -2,7 +2,7 @@ import { Component, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Api } from './api';
-import { Comment, Context, Project, Task, TaskDetail, TaskStatus } from './models';
+import { AttentionTask, Comment, Context, Project, Task, TaskDetail, TaskStatus } from './models';
 
 @Component({
   selector: 'app-root',
@@ -17,6 +17,8 @@ export class AppComponent {
   project = signal<Project | null>(null);
   tasks = signal<Task[]>([]);
   detail = signal<TaskDetail | null>(null);
+  attentionTasks = signal<AttentionTask[]>([]);
+  currentView = signal<'attention' | 'project'>('attention');
   loading = signal(false);
   saving = signal(false);
   error = signal('');
@@ -28,6 +30,7 @@ export class AppComponent {
   draft = this.emptyDraft();
   private generation = 0;
   private detailGeneration = 0;
+  private attentionGeneration = 0;
   readonly statuses: { value: TaskStatus; label: string }[] = [
     { value: 'open', label: 'Открыта' }, { value: 'in_progress', label: 'В работе' },
     { value: 'blocked', label: 'Заблокирована' }, { value: 'done', label: 'Готово' },
@@ -41,14 +44,17 @@ export class AppComponent {
     this.error.set('');
     this.closeDetail();
     try {
-      const [context, projects] = await Promise.all([
-        this.api.request<Context>('/context'), this.api.request<Project[]>('/projects'),
+      const [context, projects, attention] = await Promise.all([
+        this.api.request<Context>('/context'),
+        this.api.request<Project[]>('/projects'),
+        this.api.request<AttentionTask[]>('/attention'),
       ]);
       if (generation !== this.generation) return;
       this.context.set(context);
       this.projects.set(projects);
-      const project = projects.find(p => p.id === this.project()?.id) ?? projects[0];
-      if (project) await this.selectProject(project);
+      this.project.set(projects.find(p => p.id === this.project()?.id) ?? projects[0] ?? null);
+      this.attentionTasks.set(attention);
+      this.currentView.set('attention');
     } catch (error) {
       if (generation === this.generation) this.fail(error);
     } finally {
@@ -62,8 +68,41 @@ export class AppComponent {
     this.projects.set([]);
     this.tasks.set([]);
     this.context.set(null);
+    this.attentionTasks.set([]);
     this.notice.set('');
+    ++this.attentionGeneration;
     void this.load();
+  }
+
+  openAttentionView(): void {
+    this.currentView.set('attention');
+    this.error.set('');
+    this.notice.set('');
+    this.closeDetail();
+  }
+
+  async loadAttention(silent = false): Promise<void> {
+    const generation = ++this.attentionGeneration;
+    if (!silent) {
+      this.loading.set(true);
+      this.error.set('');
+    }
+    try {
+      const attention = await this.api.request<AttentionTask[]>('/attention');
+      if (generation !== this.attentionGeneration) return;
+      this.attentionTasks.set(attention);
+    } catch (error) {
+      if (!silent && generation === this.attentionGeneration) this.fail(error);
+    } finally {
+      if (!silent && generation === this.attentionGeneration) this.loading.set(false);
+    }
+  }
+
+  async openAttentionTask(task: AttentionTask): Promise<void> {
+    const project = this.projects().find(p => p.id === task.project_id);
+    if (!project) { this.fail(new Error('Проект недоступен')); return; }
+    this.project.set(project);
+    await this.openTask(task);
   }
 
   async selectProject(project: Project): Promise<void> {
@@ -71,6 +110,7 @@ export class AppComponent {
     this.loading.set(true);
     this.error.set('');
     this.notice.set('');
+    this.currentView.set('project');
     this.project.set(project);
     this.tasks.set([]);
     this.status = '';
@@ -151,6 +191,7 @@ export class AppComponent {
           assignee_id: task.assignee_id, due_at: task.due_at?.slice(0, 16) ?? '',
         };
         this.notice.set('Задача сохранена');
+        void this.loadAttention(true);
       }
     } catch (error) { if (generation === this.detailGeneration) this.fail(error); }
     finally { this.saving.set(false); }
@@ -169,6 +210,7 @@ export class AppComponent {
       this.detail.update(current => current ? { ...current, comments: [...current.comments, comment] } : current);
       this.comment = '';
       this.notice.set('Комментарий добавлен');
+      void this.loadAttention(true);
     } catch (error) { if (generation === this.detailGeneration) this.fail(error); }
     finally { this.saving.set(false); }
   }

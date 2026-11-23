@@ -146,6 +146,97 @@ input:focus,select:focus,textarea:focus {
   margin-top:70px;
   padding:12px;
 }
+.attention-scroll {
+  overflow-x:auto;
+  margin-top:20px;
+  border:1px solid #d8dee4;
+  border-radius:9px;
+  background:#fff;
+}
+.attention-scroll table {
+  table-layout:auto;
+  width:100%;
+  min-width:860px;
+}
+.attention-scroll th,
+.attention-scroll td {
+  white-space:normal;
+  overflow-wrap:normal;
+  word-break:normal;
+  padding:14px 12px;
+  text-align:left;
+  vertical-align:top;
+}
+.attention-scroll th {
+  white-space:nowrap;
+}
+.attention-scroll .badge {
+  white-space:nowrap;
+}
+.attention-scroll th:nth-child(1) {
+  width:16%;
+  min-width:150px;
+}
+.attention-scroll th:nth-child(2) {
+  width:25%;
+  min-width:210px;
+}
+.attention-scroll th:nth-child(3),
+.attention-scroll th:nth-child(4) {
+  width:1%;
+}
+.attention-scroll th:nth-child(5) {
+  min-width:230px;
+}
+.attention-scroll th:nth-child(6) {
+  width:14%;
+  min-width:140px;
+}
+.attention-scroll tbody tr:hover {
+  background-color:#f8fafc;
+}
+.reason-stack {
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  align-items:flex-start;
+}
+.reason-stack .badge {
+  font-size:11px;
+  padding:2px 6px;
+  border-radius:4px;
+  font-weight:500;
+  white-space:nowrap;
+  text-align:left;
+}
+.attention-comment-block {
+  border:1px solid #e4e9ee;
+  background:#f8fafc;
+  border-radius:6px;
+  padding:8px 10px;
+  font-size:12px;
+  overflow-wrap:break-word;
+}
+.attention-comment-block strong {
+  display:block;
+  font-size:10px;
+  color:#87939b;
+  margin-bottom:3px;
+}
+.attention-comment-block p {
+  margin:0;
+  line-height:1.5;
+}
+.badge-high {
+  background-color:#fee2e2 !important;
+  color:#991b1b !important;
+  border:1px solid #fecaca;
+}
+.badge-medium {
+  background-color:#fef3c7 !important;
+  color:#92400e !important;
+  border:1px solid #fde68a;
+}
 main {
   flex:1;
   min-width:0;
@@ -261,9 +352,7 @@ tr:last-child td {
   text-align:left;
   font-weight:500;
   font-size:13px;
-  display:flex;
-  gap:10px;
-  align-items:baseline;
+  display: inline;
 }
 .task-title:hover:not(:disabled) {
   background:none;
@@ -273,6 +362,8 @@ tr:last-child td {
 .task-number {
   color:#87939b;
   font-size:11px;
+  margin-right: 6px;
+  white-space: nowrap;
 }
 .badge {
   display:inline-block;
@@ -479,3 +570,4 @@ fieldset {
     flex-wrap:wrap;
   }
 }
+

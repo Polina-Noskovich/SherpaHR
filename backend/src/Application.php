@@ -117,12 +117,9 @@ final class Application
         throw new ApiError('Маршрут не найден', 404);
     }
 
-    private function attention(): void
-    {
+    private function attention(): void {
         $now = gmdate('Y-m-d\TH:i:s\Z');
         $rows = $this->all('SELECT t.*, p.name AS project_name, u.name AS assignee_name FROM tasks t JOIN projects p ON p.id=t.project_id JOIN project_members m ON m.project_id=p.id AND m.user_id=? LEFT JOIN users u ON u.id=t.assignee_id WHERE p.archived = 0 AND t.status != ? ORDER BY t.id', [$this->userId, 'done']);
-        $signals = ['нужна помощь', 'помощь руководителя', 'без доступа', 'нет доступа', 'ждёт решения', 'блокер', 'проблема', 'застряли', 'не могу'];
-        $negatives = ['препятствий нет', 'расхождений пока нет', 'проблем нет'];
         $result = [];
         foreach ($rows as $task) {
             $lastComment = $this->one('SELECT c.*, cu.name AS author FROM comments c JOIN users cu ON cu.id=c.user_id WHERE c.task_id=? ORDER BY c.id DESC LIMIT 1', [$task['id']]);
@@ -133,20 +130,17 @@ final class Application
             if ($task['status'] === 'blocked') {
                 $reasons[] = ['code' => 'blocked', 'label' => 'Заблокирована', 'severity' => 'high'];
             }
-            $body = $lastComment !== false ? strtolower((string) $lastComment['body']) : '';
-            $hasSignal = false;
-            foreach ($signals as $signal) {
-                if (str_contains($body, $signal)) { $hasSignal = true; break; }
-            }
-            $hasNegative = false;
-            foreach ($negatives as $negative) {
-                if (str_contains($body, $negative)) { $hasNegative = true; break; }
-            }
+            $body = $lastComment ? (string) $lastComment['body'] : '';
+            $hasSignal = $body !== '' && preg_match(
+                '/(нужна помощь|помощь руководителя|без доступа|нет доступа|ждёт решения|блокер|проблема|застряли|не могу)/iu',
+                $body
+            ) === 1;
+            $hasNegative = $body !== '' && preg_match(
+                '/(препятствий нет|расхождений пока нет|проблем нет)/iu',
+                $body
+            ) === 1;
             if ($hasSignal && !$hasNegative) {
-                $reasons[] = ['code' => 'blocker_in_comment', 'label' => 'Препятствие в обсуждении', 'severity' => 'high'];
-            }
-            if ($lastComment !== false && $lastComment['user_id'] != $this->userId) {
-                $reasons[] = ['code' => 'waiting_reply', 'label' => 'Ждёт ответа', 'severity' => 'medium'];
+                $reasons[] = ['code' => 'blocker_in_comment', 'label' => 'Открытые обсуждения', 'severity' => 'high'];
             }
             if ($task['assignee_id'] === null) {
                 $reasons[] = ['code' => 'unassigned', 'label' => 'Без исполнителя', 'severity' => 'medium'];
@@ -154,7 +148,7 @@ final class Application
             if (!$reasons) {
                 continue;
             }
-            $task['last_comment'] = $lastComment;
+            $task['last_comment'] = $lastComment ?: null;
             $task['reasons'] = $reasons;
             $task['score'] = 3 * count(array_filter($reasons, fn(array $r) => $r['severity'] === 'high'))
                 + count(array_filter($reasons, fn(array $r) => $r['severity'] === 'medium'));

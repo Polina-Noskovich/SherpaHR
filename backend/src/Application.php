@@ -58,10 +58,14 @@ final class Application
             $this->respond($projects);
             return;
         }
+        if ($method === 'GET' && $path === '/api/attention') {
+            $this->attention();
+            return;
+        }
         if (preg_match('#^/api/projects/(\d+)/tasks$#', $path, $match)) {
             $project = $this->project((int) $match[1]);
             if ($method === 'GET') {
-                $this->respond($this->all('SELECT t.* FROM tasks t JOIN users u ON u.id=t.assignee_id WHERE t.project_id=? ORDER BY t.id', [$project['id']]));
+                $this->respond($this->all('SELECT t.* FROM tasks t WHERE t.project_id=? ORDER BY t.id', [$project['id']]));
                 return;
             }
             if ($method === 'POST') {
@@ -102,10 +106,74 @@ final class Application
             $task = $this->task((int) $match[1]);
             $this->writable($this->project($task['project_id']));
             $data = $this->input();
-            $this->text($data['body'] ?? null, 'Комментарий', 5000, true);
-            throw new ApiError('Добавление комментариев пока не реализовано', 501);
+            $body = $this->text($data['body'] ?? null, 'Комментарий', 5000, true);
+            $createdAt = gmdate('Y-m-d\TH:i:s\Z');
+            $stmt = $this->db->prepare('INSERT INTO comments (task_id,user_id,body,created_at) VALUES (?,?,?,?)');
+            $stmt->execute([$task['id'], $this->userId, $body, $createdAt]);
+            $comment = $this->one('SELECT c.*, u.name AS author FROM comments c JOIN users u ON u.id=c.user_id WHERE c.id=?', [(int) $this->db->lastInsertId()]);
+            $this->respond($comment, 201);
+            return;
         }
         throw new ApiError('Маршрут не найден', 404);
+    }
+
+    private function attention(): void {
+        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $rows = $this->all('SELECT t.*, p.name AS project_name, u.name AS assignee_name FROM tasks t JOIN projects p ON p.id=t.project_id JOIN project_members m ON m.project_id=p.id AND m.user_id=? LEFT JOIN users u ON u.id=t.assignee_id WHERE p.archived = 0 AND t.status != ? ORDER BY t.id', [$this->userId, 'done']);
+        $result = [];
+        foreach ($rows as $task) {
+            $lastComment = $this->one('SELECT c.*, cu.name AS author FROM comments c JOIN users cu ON cu.id=c.user_id WHERE c.task_id=? ORDER BY c.id DESC LIMIT 1', [$task['id']]);
+            $reasons = [];
+            if ($task['due_at'] !== null && $task['due_at'] < $now) {
+                $reasons[] = ['code' => 'overdue', 'label' => 'Просрочена', 'severity' => 'high'];
+            }
+            if ($task['status'] === 'blocked') {
+                $reasons[] = ['code' => 'blocked', 'label' => 'Заблокирована', 'severity' => 'high'];
+            }
+            $body = $lastComment ? (string) $lastComment['body'] : '';
+            $hasSignal = $body !== '' && preg_match(
+                '/(нужна помощь|помощь руководителя|без доступа|нет доступа|ждёт решения|блокер|проблема|застряли|не могу)/iu',
+                $body
+            ) === 1;
+            $hasNegative = $body !== '' && preg_match(
+                '/(препятствий нет|расхождений пока нет|проблем нет)/iu',
+                $body
+            ) === 1;
+            if ($hasSignal && !$hasNegative) {
+                $reasons[] = ['code' => 'blocker_in_comment', 'label' => 'Открытые обсуждения', 'severity' => 'high'];
+            }
+            if ($task['assignee_id'] === null) {
+                $reasons[] = ['code' => 'unassigned', 'label' => 'Без исполнителя', 'severity' => 'medium'];
+            }
+            if (!$reasons) {
+                continue;
+            }
+            $task['last_comment'] = $lastComment ?: null;
+            $task['reasons'] = $reasons;
+            $task['score'] = 3 * count(array_filter($reasons, fn(array $r) => $r['severity'] === 'high'))
+                + count(array_filter($reasons, fn(array $r) => $r['severity'] === 'medium'));
+            $result[] = $task;
+        }
+        usort($result, function (array $a, array $b): int {
+            $high = fn(array $t): int => count(array_filter($t['reasons'], fn(array $r): bool => $r['severity'] === 'high'));
+            $diff = $high($b) <=> $high($a);
+            if ($diff !== 0) {
+                return $diff;
+            }
+            $dueA = $a['due_at'] ?? null;
+            $dueB = $b['due_at'] ?? null;
+            if ($dueA === null && $dueB === null) {
+                return $a['id'] <=> $b['id'];
+            }
+            if ($dueA === null) {
+                return 1;
+            }
+            if ($dueB === null) {
+                return -1;
+            }
+            return $dueA <=> $dueB ?: $a['id'] <=> $b['id'];
+        });
+        $this->respond($result);
     }
 
     private function validateTask(array $data, int $projectId, bool $partial): array

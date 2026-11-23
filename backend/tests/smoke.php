@@ -113,6 +113,70 @@ try {
     check(count($response['data']) === 6, 'initialization does not duplicate or reset data');
     check(request('GET', '/api/tasks/9999')[0] === 404, 'missing task returns 404');
     check(request('GET', '/api/unknown')[0] === 404, 'unknown route returns 404');
+    [$status, $attention] = request('GET', '/api/attention');
+    $attentionIds = array_column($attention['data'], 'id');
+    check(in_array(5, $attentionIds, true) && in_array(1, $attentionIds, true) && in_array(2, $attentionIds, true) && in_array(7, $attentionIds, true), 'Anna attention list contains tasks 5, 1, 2, 7');
+    check(!in_array(10, $attentionIds, true), 'attention excludes archived project tasks');
+    check(!in_array(11, $attentionIds, true), 'attention excludes foreign tasks');
+    foreach ($attention['data'] as $item) {
+        check(is_array($item['reasons']) && $item['reasons'] !== [] && is_int($item['score']), 'attention items carry reasons and score');
+    }
+    [$status, $attentionVera] = request('GET', '/api/attention', null, 3);
+    $veraIds = array_column($attentionVera['data'], 'id');
+    check(in_array(11, $veraIds, true), 'Vera attention contains her task 11');
+    $veraOutside = array_values(array_filter($attentionVera['data'], fn(array $t): bool => $t['project_id'] === 2));
+    check($veraOutside === [], 'attention excludes tasks outside Vera membership: ' . json_encode($veraOutside, JSON_UNESCAPED_UNICODE));
+    check(request('GET', '/api/attention', null, 999)[0] === 401, 'attention requires known persona');
+    [$status, $noCommentResp] = request('POST', '/api/projects/1/tasks', [
+        'title' => 'Задача без комментариев',
+        'assignee_id' => null,
+    ]);
+    check($status === 201, 'create unassigned task without comments');
+    $noCommentTaskId = $noCommentResp['data']['id'];
+
+    [$status, $attentionAfterCreate] = request('GET', '/api/attention');
+    $noCommentItem = null;
+    foreach ($attentionAfterCreate['data'] as $item) {
+        if ($item['id'] === $noCommentTaskId) {
+            $noCommentItem = $item;
+            break;
+        }
+    }
+    check($noCommentItem !== null && $noCommentItem['last_comment'] === null, 'attention task without comments has null last_comment');
+
+    [$status, $signalTaskResp] = request('POST', '/api/projects/1/tasks', [
+        'title' => 'Проверка кириллицы в сигнале',
+        'status' => 'in_progress',
+        'assignee_id' => 2,
+        'due_at' => '2099-01-01T00:00:00Z',
+    ]);
+    check($status === 201, 'create assigned future task for comment signal check');
+    $signalTaskId = $signalTaskResp['data']['id'];
+
+    [$status, $commentResp] = request('POST', '/api/tasks/' . $signalTaskId . '/comments', [
+        'body' => 'Нужна помощь с доступом к тестовому стенду',
+    ], 2);
+    check($status === 201, 'post capitalized Cyrillic blocker comment');
+
+    [$status, $attentionAfterComment] = request('GET', '/api/attention');
+    $signalItem = null;
+    foreach ($attentionAfterComment['data'] as $item) {
+        if ($item['id'] === $signalTaskId) {
+            $signalItem = $item;
+            break;
+        }
+    }
+    $reasonCodes = $signalItem ? array_column($signalItem['reasons'], 'code') : [];
+    check($signalItem !== null && in_array('blocker_in_comment', $reasonCodes, true), 'capitalized Cyrillic signal triggers blocker_in_comment');
+
+    [$status, $doneResp] = request('PATCH', '/api/tasks/' . $signalTaskId, [
+        'status' => 'done',
+        'version' => 1,
+    ]);
+    check($status === 200, 'mark task done');
+    [$status, $attentionAfterDone] = request('GET', '/api/attention');
+    $idsAfterDone = array_column($attentionAfterDone['data'], 'id');
+    check(!in_array($signalTaskId, $idsAfterDone, true), 'done task is excluded from attention');
     echo "PASS: $count API checks\n";
 } catch (Throwable $error) {
     fwrite(STDERR, $error->getMessage() . PHP_EOL . file_get_contents($directory . '/server.log'));
